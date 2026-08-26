@@ -1,4 +1,4 @@
-name: Test pipeline
+name: 程式單元測試（不抓資料）
 
 on:
   workflow_dispatch:
