@@ -1,22 +1,18 @@
-name: 花蓮範圍一週探索
+name: 花蓮範圍年度探索
 
 on:
   workflow_dispatch:
     inputs:
-      start_date:
-        description: 探索開始日期（YYYY-MM-DD）
+      year:
+        description: 探索年度（2010–2026；當年度只抓到今天）
         required: true
-        default: "2025-01-06"
-        type: string
-      end_date:
-        description: 探索結束日期（YYYY-MM-DD，最多31天）
-        required: true
-        default: "2025-01-12"
+        default: "2010"
         type: string
 
 permissions:
   contents: read
 
+# 各年度仍依序執行，避免同時大量請求公開 API，也避免私人 repo push 衝突。
 concurrency:
   group: hualien-scope-discovery
   cancel-in-progress: false
@@ -24,7 +20,7 @@ concurrency:
 jobs:
   discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - name: Check out public pipeline
         uses: actions/checkout@v4
@@ -36,15 +32,45 @@ jobs:
           token: ${{ secrets.HUALIEN_DATA_REPO_TOKEN }}
           path: private-data
 
-      - name: Scan nationwide award indexes
+      - name: Validate requested year
         shell: bash
         run: |
           set -euo pipefail
-          output="private-data/data/discovery/${{ inputs.start_date }}_${{ inputs.end_date }}.json"
-          python scripts/discover_hualien_scope.py \
-            --start-date "${{ inputs.start_date }}" \
-            --end-date "${{ inputs.end_date }}" \
-            --output "$output"
+          year="${{ inputs.year }}"
+          current_year="$(date -u +%Y)"
+          if ! [[ "$year" =~ ^[0-9]{4}$ ]] || (( year < 2010 || year > 2026 )); then
+            echo "::error::年度必須介於 2010 與 2026"
+            exit 1
+          fi
+          if (( year > current_year )); then
+            echo "::error::不可探索尚未開始的年度 $year"
+            exit 1
+          fi
+
+      - name: Scan nationwide award indexes month by month
+        shell: bash
+        run: |
+          set -euo pipefail
+          year="${{ inputs.year }}"
+          today="$(date -u +%F)"
+
+          for month in $(seq -w 1 12); do
+            start_date="${year}-${month}-01"
+            end_date="$(date -u -d "$start_date +1 month -1 day" +%F)"
+
+            if [[ "$start_date" > "$today" ]]; then
+              break
+            fi
+            if [[ "$end_date" > "$today" ]]; then
+              end_date="$today"
+            fi
+
+            output="private-data/data/discovery/${year}/${start_date}_${end_date}.json"
+            python scripts/discover_hualien_scope.py \
+              --start-date "$start_date" \
+              --end-date "$end_date" \
+              --output "$output"
+          done
 
       - name: Commit candidates to private repository
         shell: bash
@@ -58,5 +84,5 @@ jobs:
             echo "No discovery changes to commit."
             exit 0
           fi
-          git commit -m "data: add Hualien scope discovery ${{ inputs.start_date }} to ${{ inputs.end_date }}"
+          git commit -m "data: add Hualien scope discovery ${{ inputs.year }}"
           git push
