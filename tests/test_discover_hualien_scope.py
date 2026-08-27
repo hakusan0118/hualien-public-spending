@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from discover_hualien_scope import classify_candidate, is_weekend_non_json
+from discover_hualien_scope import classify_candidate, non_json_skip_reason
 
 
 def record(unit_id, unit_name, title, notice_type="決標公告"):
@@ -58,10 +58,16 @@ class DiscoverHualienScopeTests(unittest.TestCase):
     def test_ignores_unrelated_record(self):
         self.assertIsNone(classify_candidate(record("3.79", "臺北市政府", "一般清潔採購")))
 
-    def test_weekend_non_json_is_skipped_signal(self):
-        self.assertTrue(is_weekend_non_json(dt.date(2025, 1, 11), ValueError("非 JSON 回應：text/html")))
-        self.assertFalse(is_weekend_non_json(dt.date(2025, 1, 10), ValueError("非 JSON 回應：text/html")))
-        self.assertFalse(is_weekend_non_json(dt.date(2025, 1, 11), TimeoutError("timeout")))
+    def test_non_json_response_is_an_explicit_gap(self):
+        self.assertEqual(
+            non_json_skip_reason(dt.date(2025, 1, 11), ValueError("非 JSON 回應：text/html")),
+            "weekend_non_json",
+        )
+        self.assertEqual(
+            non_json_skip_reason(dt.date(2011, 2, 3), ValueError("非 JSON 回應：text/html")),
+            "non_json_no_index",
+        )
+        self.assertIsNone(non_json_skip_reason(dt.date(2025, 1, 11), TimeoutError("timeout")))
 
 
 if __name__ == "__main__":
