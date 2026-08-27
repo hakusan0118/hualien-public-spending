@@ -122,9 +122,11 @@ def classify_candidate(record: dict) -> dict | None:
     return candidate
 
 
-def is_weekend_non_json(day: dt.date, exc: Exception) -> bool:
-    """Identify the API's observed weekend no-index response without hiding it."""
-    return day.weekday() >= 5 and "非 JSON 回應" in str(exc)
+def non_json_skip_reason(day: dt.date, exc: Exception) -> str | None:
+    """Classify an exhausted non-JSON response as an explicit data gap."""
+    if "非 JSON 回應" not in str(exc):
+        return None
+    return "weekend_non_json" if day.weekday() >= 5 else "non_json_no_index"
 
 
 def discover(start: dt.date, end: dt.date, output: Path, delay: float, attempts: int) -> None:
@@ -159,13 +161,15 @@ def discover(start: dt.date, end: dt.date, output: Path, delay: float, attempts:
             print(f"{stamp}: scanned={len(records)} candidates_total={len(candidates)}", flush=True)
             time.sleep(delay)
         except Exception as exc:
-            if is_weekend_non_json(day, exc):
+            skip_reason = non_json_skip_reason(day, exc)
+            if skip_reason:
                 skipped_dates.append({
                     "date": stamp,
-                    "reason": "weekend_non_json",
+                    "reason": skip_reason,
                     "detail": str(exc),
                 })
-                print(f"::notice::{stamp} 週末索引未提供 JSON，已明確標記為未掃描", flush=True)
+                label = "週末" if skip_reason == "weekend_non_json" else "非工作日或索引缺口"
+                print(f"::notice::{stamp} {label}未提供 JSON，已明確標記為未掃描", flush=True)
             else:
                 errors.append({"date": stamp, "error": str(exc)})
                 print(f"::warning::{stamp} 索引掃描失敗：{exc}", flush=True)
